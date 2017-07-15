@@ -396,7 +396,7 @@ my_oauth$handshake(cainfo = system.file("CurlSSL", "cacert.pem", package = "RCur
 save(my_oauth, file = "my_oauth.Rdata")
 ```
 
-The codes below can be used to collect streaming data on tweets mentioning either fashion, clothing or clothes for 5 minutes, save tweets in a json file, parse the json file, and save to a data frame called tweets\_stream\_fashion. The dimension of the data frame and column names are also shown as below.
+The codes below can be used to collect streaming data on tweets mentioning either fashion, clothing or clothes for 10 minutes, save tweets in a json file, parse the json file, and save to a data frame called tweets\_stream\_fashion. The dimension of the data frame and column names are also shown as below.
 
 ``` r
 load("my_oauth.Rdata")
