@@ -43,10 +43,10 @@ library(grid)
 Once these packages are installed and loaded, we can set up our connection to the Twitter Search API and collect recent posted tweets regarding the top 15 clothing brands for late twenties and early thirties. A function called `getTweets` was created to get tweets in data.frame format. In addition, the `ldply` function in package **plyr** was used to get tweets for all brands in parallel.
 
 ``` r
-api_key <- "2mFZzH2upCzXpBaCIj5WPzzrE"
-api_secret <- "wUVlH9McGi6abhBte1KENwFYlp8GM4yxdyCWUwzNsNVCAboMBK"
-access_token <- "874754472072716288-Eh56bVcOat9ezRBhUppNmpX2gLaFTHD"
-access_token_secret <- "crtjWOQHs2tRllzdM0AWVObRiryHf8TjWfQH3gmqyNR6B"
+api_key <- "Your Twitter API Key"
+api_secret <- "Your Twitter API Secret"
+access_token <- "Your Twitter Access Token"
+access_token_secret <- "Your Twitter Access Token Secret"
 setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
 ```
 
