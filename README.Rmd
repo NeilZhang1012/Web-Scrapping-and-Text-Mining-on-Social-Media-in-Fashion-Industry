@@ -1,0 +1,200 @@
+---
+title: "Web Scrapping and Text Mining on Social Media Data in Fashion Industry"
+output: github_document
+---
+
+##Background and Problem Statement
+
+Today, our generation lives in a time where tv shows are being streamed on Netflix and news is breaking online. With the rapid development of computer science and information technology, social media have become prominent parts of life for many people. Through social media, people can connect with each other, share their opinions, and access information they need easily and immediately. Social media has also changed the fashion industry, as well as every other industry completely. It gives companies the ability to directly reach their consumers and enables customers to share their opinions and reviews on fashion brands and trends.
+
+In this project, I will web scrape data in fashion industry from Twitter and make it ready for analysis through data cleaning and data management process. Text mining will be conducted to analyze tweets discussion of clothing and fashion, and provide us insights on people’s opinions on fashion brands and trends.
+
+##About the Data
+
+The data in this project was collected from tweets regarding fashion brands and clothing. To analyze people's opinions on fashion brands and trends, Twitter Search API was used to collect recent past tweets regarding the top 15 clothing brands for late twenties and early thirties, including the following: ASOS, Ann Taylor, ModCloth, J.Crew, UNIQLO, Madewell, Forever 21, COS, Rag & Bone, Tory Burch, Rebecca Minkoff, Kate Spade, Michael Kors, Calvin Klein, and Club Monaco. In addition, real-time tweets regarding fashion and clothing was also collected by using Twitter Streaming API for the purpose of exploratory analysis.
+
+##Create an Application
+
+To collect data from Twitter, we'll first need to set up an application at https://apps.twitter.com. This will allow us to connect R to the Twitter stream.  You’ll need a name, description, and website. I’ve used my Github address as a website, though I’d imagine that anything works. Once created, click on "modify app permissions" and allow the application to read, write and access direct messages. Lastly, click on the API Keys tab and scroll to the bottom of the page. Under token actions, click on "Create my access token". Four API credentials will be created, including API Key, API Secret, Access Token, and Access Token Secret. We’ll need these access tokens when we fire up R.
+
+##Collect Past Tweets using Search API
+
+To use the Twitter Search API, Streaming API and conduct data analysis and text mining, we need the following packages.
+
+```{r loaad package, results='hide', warning=FALSE, message=FALSE}
+library(twitteR)
+library(streamR)
+library(RCurl)
+library(RJSONIO)
+library(stringr)
+library(ROAuth)
+library(tm)
+library(SnowballC)
+library(textstem)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(wordcloud)
+library(grid)
+```
+
+Once these packages are installed and loaded, we can set up our connection to the Twitter Search API and collect recent posted tweets regarding the top 15 clothing brands for late twenties and early thirties. A function called `getTweets` was created to get tweets in data.frame format. In addition, the `ldply` function in package **plyr** was used to get tweets for all brands in parallel.
+
+```{r set up connection}
+api_key <- "2mFZzH2upCzXpBaCIj5WPzzrE"
+api_secret <- "wUVlH9McGi6abhBte1KENwFYlp8GM4yxdyCWUwzNsNVCAboMBK"
+access_token <- "874754472072716288-Eh56bVcOat9ezRBhUppNmpX2gLaFTHD"
+access_token_secret <- "crtjWOQHs2tRllzdM0AWVObRiryHf8TjWfQH3gmqyNR6B"
+setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
+```
+
+```{r collect past tweets}
+#Collect Tweets
+brands <- list("ASOS", "AnnTaylor", "ModCloth", "jcrew", "Uniqlo", "madewell", "Forever21", "cosstores", "rag_bone", "toryburch", "RebeccaMinkoff", "katespadeny", "MichaelKors", "CalvinKlein", "ClubMonaco")
+getTweets <- function(brand, n = 10000) {
+  search_string <- paste0("@", brand, " OR ", "#", brand, " OR ", brand)
+  # get tweets
+  tweets <- searchTwitter(search_string, since = "2017-05-01", n = n)
+  # strip retweets
+  tweets <- strip_retweets(tweets, strip_manual = TRUE, strip_mt = TRUE)
+  # convert to data.frame
+  tweetdf <- twListToDF(tweets)
+  # add brand and return
+  out <- cbind(brand, tweetdf)
+  return(out)
+}
+tweets_by_brand <- ldply(brands, function(brand) getTweets(brand, n = 10000))
+```
+
+The output below shows the dimension of the data frame created (tweets_by_brand) and the first 5 observations in the data frame. we can see that more than 30,000 tweets are collected and there are 17 columns in the data frame. 
+
+```{r}
+dim(tweets_by_brand)
+head(tweets_by_brand, 5)
+```
+
+##Exploratory Analysis and Text Mining
+
+We now have a data frame with more than 30,000 observations and 17 variables, which is ready for exploratory data analysis and text mining. While most of the variables are self-explanatory, the following are likely the most important ones:
+
+* Brand: the clothing brand that the tweet mentioned about
+
+* Text: the text of the actual tweet
+
+* Created: the date and timestamp of creation
+
+* Longitude and Latitude: if available, the longitude and latitude of the tweet.
+
+A clothing brand popularity plot can be created as below. According to the plot, we can find that the number of tweets mentioned ASOS, Forever 21, and Rag & Bone are much higher than the number of tweets regarding other brands. This somewhat suggests that ASOS, Forever 21, and Rag & Bone are the most popular clothing brands among all the 15 clothing brands we discussed in this project. 
+
+```{r brand popularity}
+tweets_count <- data.frame(tweets_by_brand %>% group_by(brand) %>% summarise(tweets_count=n()) %>% arrange(desc(tweets_count)))
+library(ggplot2)
+ggplot(tweets_count, aes(brand, tweets_count)) + geom_bar(stat="identity", fill="blue") + xlab("Brand") + ylab("Tweets Count") + ggtitle("Clothing Brand Popularity") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = 0.5))
+```
+
+Before conducting the text mining, we will first need to clean the text which serves to remove extraneous characters, unwanted words, and excessive whitespace, to ensure that words are tallied correctly. For example, we may want to remove URLs, emojis, and special symbols in the tweets. In addition, the tm package in R includes numerous transformations to make the process of text cleaning quick and efficient. The following codes will, respectively, remove URLs, remove special symbol "w/" and "&amp", remove emojis, create a corpus (each tweet text is a distinct document), lowercase all our terms, remove common stop words in English, remove numbers, remove punctuation, strip extraneous whitespace, and lemmatize terms.
+
+```{r text cleaning}
+tweets_text <- data.frame(text = tweets_by_brand$text, stringsAsFactors = F)
+tweets_text$text <- gsub("http\\S+\\s*", "", tweets_text$text)
+tweets_text$text <- gsub("w/", "", tweets_text$text)
+tweets_text$text <- gsub("&amp", "", tweets_text$text)
+tweets_text$text <- iconv(tweets_text$text, "latin1", "ASCII", sub="")
+text_corpus <- Corpus(DataframeSource(tweets_text))
+text_corpus <- tm_map(text_corpus, content_transformer(tolower))
+my_stopwords <- c(stopwords(kind = "en"), "im", "youre", "hes", "shes", "its", "were", "theyre", "ive", "youve", "weve", "theyve", "id", "youd", "hed", "shed", "wed", "theyd", "ill", "youll", "hell", "shell", "well", "theyll", "isnt", "arent", "wasnt", "werent", "hasnt", "havent", "hadnt", "doesnt", "dont", "didnt", "wont", "wouldnt", "shant", "shouldnt", "can", "cant", "couldnt", "mustnt", "lets", "thats", "whos", "whats", "heres", "theres", "whens", "wheres", "whys", "hows", "RT")
+text_corpus <- tm_map(text_corpus, removeWords, my_stopwords)
+text_corpus <- tm_map(text_corpus, removeNumbers)
+text_corpus <- tm_map(text_corpus, removePunctuation, preserve_intra_word_dashes = T)
+text_corpus <- tm_map(text_corpus, stripWhitespace)
+text_corpus <- tm_map(text_corpus, content_transformer(lemmatize_strings))
+```
+
+From our cleaned corpus we can then create the document term matrix and view its summary information. Here we can see that the `DocumentTermMatrix` function has created a matrix for us, stored in the dtm variable, with over 30,000 tweets text as rows and about 29,000 terms as columns.
+
+```{r dtm}
+dtm <- DocumentTermMatrix(text_corpus)
+dtm
+dim(dtm)
+```
+
+Now that we have created the document term matrix, there are a number of built-in functions to assist in understanding our corpus. First, term frequency tends to be a useful starting point in understanding what terms dominate our corpus. We can create a full list of term frequencies and use the `head` function to view a number of the top-most terms. Additionally, the `findFreqTerms` function can be used to assess a particular document term matrix, with the lower bound frequency we desire. Furthermore, word frequency barplot and wordclouds can also be useful visual tool for representing frequencies at a glance. 
+
+```{r text mining}
+freq <- sort(colSums(as.matrix(dtm)), decreasing = T)
+head(freq, 100)
+findFreqTerms(dtm, lowfreq = 350)
+word_freq = data.frame(Term=names(freq), Count=freq)
+ggplot(subset(word_freq, freq > 800), aes(Term, Count)) + geom_bar(stat="identity") + xlab("Term") + ylab("Frequency") + ggtitle("Word Frequency") + theme(axis.text.x=element_text(angle=45, hjust=1), plot.title = element_text(hjust = 0.5))
+set.seed(1234)
+wordcloud(names(freq), freq, min.freq = 420, random.order = FALSE, colors=brewer.pal(8, "Accent"))
+```
+
+From the results and plots above, we can find that the most frequet words in our collected tweets include clothing brand names and some other interesting words such as man, bag, black, leather, shirt, jeans, shoe, etc. These frequent words can give us a sense of what people are talking about regarding fashion and clothing recently.
+
+Now that we have the most frequently occurring terms in hand, we can check for correlations between some of these and other terms that occur in the corpus. In this context, correlation is a quantitative measure of the co-occurrence of words in tweets we collected. The tm package provides the `findAssocs` function to do this. In addition, it can be useful to visually represent term correlations.
+
+```{r}
+findAssocs(dtm, term = "asos", 0.10)
+plot(dtm, terms = names(findAssocs(dtm,term="asos",0.1)[["asos"]]), corThreshold = 0.1, attrs=list(node=list(label="foo", fillcolor="lightgreen", fontsize="15", shape="ellipse")), edge=list(color="cyan"))
+```
+
+The plot above shows the words that are closely related to ASOS and their correlation with each other. It seems most people are talking about ASOS Curve (women's plus size clothing with ASOS), ASOS midi dress, and ASOS maternity dress.
+
+##Collect Streaming Data using Twitter Streaming API
+
+To collect streaming data from Twitter, we need to set up an OAuth handshake. This can be accomplished using the ROAuth package and codes below. You will only need to do this one time, so long as you save it to an .Rdata file in disk for future sessions.
+
+```{r, eval=FALSE}
+requestURL <- "https://api.twitter.com/oauth/request_token"
+accessURL <- "https://api.twitter.com/oauth/access_token"
+authURL <- "https://api.twitter.com/oauth/authorize"
+consumerKey <- "t9CMDimaZVL9jVzWZPfpwHxoo"
+consumerSecret <- "fPYPpmAOtK5NxHLDfOvTwwTHzcQUO0yriaNRniAJKnligCRFUH"
+my_oauth <- OAuthFactory$new(consumerKey = consumerKey,
+                             consumerSecret = consumerSecret,
+                             requestURL = requestURL,
+                             accessURL = accessURL,
+                             authURL = authURL)
+my_oauth$handshake(cainfo = system.file("CurlSSL", "cacert.pem", package = "RCurl"))
+save(my_oauth, file = "my_oauth.Rdata")
+```
+
+The codes below can be used to collect streaming data on tweets mentioning either fashion, clothing or clothes for 5 minutes, save tweets in a json file, parse the json file, and save to a data frame called tweets_stream_fashion. The dimension of the data frame and column names are also shown as below.
+
+```{r, eval=FALSE}
+load("my_oauth.Rdata")
+filterStream(file.name = "tweets_fashion.json",
+             track = c("fashion", "clothing", "clothes"),
+             locations = c(-180, -90, 180, 90),
+             timeout = 60*10,
+             oauth = my_oauth)
+```
+
+```{r}
+tweets_stream_fashion <- parseTweets("tweets_fashion.json", simplify = FALSE)
+dim(tweets_stream_fashion)
+colnames(tweets_stream_fashion)
+```
+
+Besides text mining, we can also do many other data analysis using this data frame. For example, the variable `country_code` can be used to count the number of tweets sent from different countries. According to the result below, we can see that most tweets regarding fashion and clothing were sent from United States.
+
+```{r}
+tweets_stream_fashion %>% group_by(country_code) %>% summarise(tweets_count=n()) %>% arrange(desc(tweets_count)) %>% top_n(20)
+```
+
+We can also capture and visualize tweets sent from the United States as below
+
+```{r}
+map.data <- map_data("state")
+points <- data.frame(x = as.numeric(tweets_stream_fashion$place_lon), y = as.numeric(tweets_stream_fashion$place_lat))
+points <- points[points$y < 50 & points$y > 25 & points$x < -66 & points$x > -125, ]
+ggplot(map.data) + geom_map(aes(map_id = region), map = map.data, fill = "white", color = "grey20", size = 0.25) + expand_limits(x = map.data$long, y = map.data$lat) + theme(axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank(), axis.title = element_blank(), panel.background = element_blank(), panel.border = element_blank(), panel.grid.major = element_blank(), plot.background = element_blank(), plot.margin = unit(0 * c(-1.5, -1.5, -1.5, -1.5), "lines")) + geom_point(data = points, aes(x = x, y = y), size = 1, alpha = 1/5, color = "darkblue")
+```
+
+According to the plot above, it is obvious that people live in large cities, such as Greater Los Angeles Area, Bay Area, Seattle, Chicago, Dallas, Miami, and Northeastern Coast have more interets on fashion and clothing.
+
+##Conclusion
+
+In this project, recent tweets and streaming data are collected from twitter for the purpose of exploratory analysis and text mining. Through the tweets collected, we can find that ASOS, Forever 21, and Rag & Bone are the most popular clothing brands among all the 15 clothing brands we discussed in this project. In addition, the tweets collected indicate that many people are talking about ASOS Curve (women's plus size clothing with ASOS), ASOS midi dress, and ASOS maternity dress in Twitter recently. Furthermore, the USA tweets density map indicates that people live in large cities, such as Greater Los Angeles Area, Bay Area, Seattle, Chicago, Dallas, Miami, and Northeastern Coast have more interets on fashion and clothing.
